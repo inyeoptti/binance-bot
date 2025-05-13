@@ -35,3 +35,8 @@ tasks/
 scripts/
 .roomodes
 .windsurfrules
+
+# Project specific
+config/
+dashboard/
+
