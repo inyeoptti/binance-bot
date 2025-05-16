@@ -1,1 +1,1 @@
-module.exports = { extends: ["@rushstack/eslint-config"] };
+export default { extends: ["@rushstack/eslint-config"] };
