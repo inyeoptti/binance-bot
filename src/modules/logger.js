@@ -1,49 +1,45 @@
 // src/modules/logger.js
-import mysql from 'mysql2/promise';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
 import { config } from '../config.js';
 
 const {
-  db: { host, user, password, database }
+  db: { file }
 } = config;
 
-let pool;
+let db;
 
 /**
  * DB 연결 풀 초기화
  */
 export async function initDb() {
-  if (pool) return;
-  pool = mysql.createPool({
-    host,
-    user,
-    password,
-    database,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+  if (db) return;
+  db = await open({
+    filename: file,
+    driver: sqlite3.Database
   });
 
   // 초기 테이블 생성 (이미 존재하면 무시)
   const createTableSQL = `
     CREATE TABLE IF NOT EXISTS trades (
-      id BIGINT AUTO_INCREMENT PRIMARY KEY,
-      timestamp DATETIME NOT NULL,
-      symbol VARCHAR(20) NOT NULL,
-      side ENUM('LONG','SHORT') NOT NULL,
-      entry_price DECIMAL(18,8) NOT NULL,
-      entry_qty DECIMAL(18,8) NOT NULL,
-      entry_leverage INT NOT NULL,
-      tp_pct DECIMAL(10,8) NOT NULL,
-      sl_pct DECIMAL(10,8) NOT NULL,
-      exit_price DECIMAL(18,8) NULL,
-      exit_reason ENUM('TAKE_PROFIT','STOP_LOSS','EMERGENCY','MANUAL') NULL,
-      pnl DECIMAL(18,8) NULL,
-      duration_seconds INT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      entry_price REAL NOT NULL,
+      entry_qty REAL NOT NULL,
+      entry_leverage INTEGER NOT NULL,
+      tp_pct REAL NOT NULL,
+      sl_pct REAL NOT NULL,
+      exit_price REAL,
+      exit_reason TEXT,
+      pnl REAL,
+      duration_seconds INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `;
-  await pool.execute(createTableSQL);
+  await db.exec(createTableSQL);
 }
 
 /**
@@ -75,8 +71,8 @@ export async function logTradeOpen({ timestamp, symbol, side, entryPrice, entryQ
     tpPct,
     slPct
   ];
-  const [result] = await pool.execute(sql, params);
-  return result.insertId;
+  const result = await db.run(sql, params);
+  return result.lastID;
 }
 
 /**
@@ -91,9 +87,9 @@ export async function logTradeOpen({ timestamp, symbol, side, entryPrice, entryQ
 export async function logTradeClose({ tradeId, exitPrice, exitReason, pnl, durationSeconds }) {
   const sql = `
     UPDATE trades
-    SET exit_price = ?, exit_reason = ?, pnl = ?, duration_seconds = ?
+    SET exit_price = ?, exit_reason = ?, pnl = ?, duration_seconds = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `;
   const params = [exitPrice, exitReason, pnl, durationSeconds, tradeId];
-  await pool.execute(sql, params);
+  await db.run(sql, params);
 }
