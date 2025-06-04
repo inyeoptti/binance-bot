@@ -5,10 +5,7 @@ const {
   BINANCE_API_KEY,
   BINANCE_API_SECRET,
   BINANCE_API_URL,
-  DB_HOST,
-  DB_USER,
-  DB_PASS,
-  DB_NAME,
+  DB_FILE,
   DISCORD_WEBHOOK_URL,
   SYMBOL,
   TIMEFRAME,
@@ -28,10 +25,7 @@ export const config = {
     apiUrl: BINANCE_API_URL,
   },
   db: {
-    host: DB_HOST,
-    user: DB_USER,
-    password: DB_PASS,
-    database: DB_NAME,
+    file: DB_FILE,
   },
   discord: {
     webhookUrl: DISCORD_WEBHOOK_URL,
