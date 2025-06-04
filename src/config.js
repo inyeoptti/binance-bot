@@ -18,6 +18,7 @@ const {
   BB_PERIOD,
   BB_STD_MULTIPLIER,
   MAX_DAILY_TRADES,
+  DRY_RUN,
 } = process.env;
 
 export const config = {
@@ -48,4 +49,5 @@ export const config = {
     tpPct: process.env.TP_PCT,
     slPct: process.env.SL_PCT,
   },
+  dryRun: DRY_RUN === 'true',
 };

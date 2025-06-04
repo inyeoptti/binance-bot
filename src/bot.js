@@ -19,7 +19,8 @@ const {
     bbStdMultiplier: BB_STD_MULTIPLIER,
     maxDailyTrades: MAX_DAILY_TRADES,
     emaPeriod: EMA_PERIOD
-  }
+  },
+  dryRun: DRY_RUN
 } = config;
 
 // 전역 상태
@@ -111,122 +112,138 @@ export default async function runBot() {
         const useAmount = balance * Number(USE_MARGIN_RATIO);
         const qty = useAmount / entryPrice;
 
-        // 3.6) 주문 실행: 시장가 진입 및 TP/SL 브래킷 주문
-        const { entryOrder, tpOrder, slOrder } = await openPosition({
-          symbol: SYMBOL,
-          side,
-          qty,
-          entryPrice,
-          leverage: intLeverage,
-          tpPct,
-          slPct
-        });
+        if (!DRY_RUN) {
+          // 3.6) 주문 실행: 시장가 진입 및 TP/SL 브래킷 주문
+          const { entryOrder, tpOrder, slOrder } = await openPosition({
+            symbol: SYMBOL,
+            side,
+            qty,
+            entryPrice,
+            leverage: intLeverage,
+            tpPct,
+            slPct
+          });
 
-        // 3.7) DB에 진입 기록 및 알림
-        const tradeId = await logTradeOpen({
-          timestamp: new Date(),
-          symbol: SYMBOL,
-          side,
-          entryPrice,
-          entryQty: qty,
-          entryLeverage: intLeverage,
-          tpPct,
-          slPct
-        });
-        await notifyTradeOpen({
-          symbol: SYMBOL,
-          side,
-          entryPrice,
-          qty,
-          leverage: intLeverage,
-          tpPct,
-          slPct
-        });
+          // 3.7) DB에 진입 기록 및 알림
+          const tradeId = await logTradeOpen({
+            timestamp: new Date(),
+            symbol: SYMBOL,
+            side,
+            entryPrice,
+            entryQty: qty,
+            entryLeverage: intLeverage,
+            tpPct,
+            slPct
+          });
+          await notifyTradeOpen({
+            symbol: SYMBOL,
+            side,
+            entryPrice,
+            qty,
+            leverage: intLeverage,
+            tpPct,
+            slPct
+          });
 
-        // 3.8) 매핑 정보 저장
-        orderIdToTradeId.set(entryOrder.id, tradeId);
-        orderIdToTradeId.set(tpOrder.id, tradeId);
-        orderIdToTradeId.set(slOrder.id, tradeId);
-        tpOrderIds.add(tpOrder.id);
-        slOrderIds.add(slOrder.id);
-        tradeOpenInfo.set(tradeId, {
-          entryPrice,
-          qty,
-          side,
-          timestamp: Date.now()
-        });
+          // 3.8) 매핑 정보 저장
+          orderIdToTradeId.set(entryOrder.id, tradeId);
+          orderIdToTradeId.set(tpOrder.id, tradeId);
+          orderIdToTradeId.set(slOrder.id, tradeId);
+          tpOrderIds.add(tpOrder.id);
+          slOrderIds.add(slOrder.id);
+          tradeOpenInfo.set(tradeId, {
+            entryPrice,
+            qty,
+            side,
+            timestamp: Date.now()
+          });
 
-        // 3.9) dailyCount 증가
-        dailyCount += 1;
+          // 3.9) dailyCount 증가
+          dailyCount += 1;
+        } else {
+          console.log(`[DRY RUN] Would open ${side} position at ${entryPrice}`);
+          await notifyTradeOpen({
+            symbol: SYMBOL,
+            side,
+            entryPrice,
+            qty,
+            leverage: intLeverage,
+            tpPct,
+            slPct
+          });
+          dailyCount += 1;
+        }
       }
 
       // 3.10) 체결 확인 및 청산 처리
-      const fills = await dataFetcher.fetchRecentFills(SYMBOL);
-      for (const fill of fills) {
-        // 이미 처리된 체결이면 패스
-        if (processedFillIds.has(fill.id)) continue;
+      if (!DRY_RUN) {
+        const fills = await dataFetcher.fetchRecentFills(SYMBOL);
+        for (const fill of fills) {
+          // 이미 처리된 체결이면 패스
+          if (processedFillIds.has(fill.id)) continue;
 
-        // 이 체결이 청산 주문에 해당하는지 확인
-        const parentOrderId = fill.orderId; // CCXT fill 객체의 주문 ID 필드
-        const tradeId = orderIdToTradeId.get(parentOrderId);
-        if (!tradeId) {
-          // 매핑되지 않은 주문은 무시
+          // 이 체결이 청산 주문에 해당하는지 확인
+          const parentOrderId = fill.orderId; // CCXT fill 객체의 주문 ID 필드
+          const tradeId = orderIdToTradeId.get(parentOrderId);
+          if (!tradeId) {
+            // 매핑되지 않은 주문은 무시
+            processedFillIds.add(fill.id);
+            continue;
+          }
+
+          // exitPrice
+          const exitPrice = fill.price;
+
+          // exitReason 판단
+          let exitReason = 'MANUAL';
+          if (tpOrderIds.has(parentOrderId)) {
+            exitReason = 'TAKE_PROFIT';
+          } else if (slOrderIds.has(parentOrderId)) {
+            exitReason = 'STOP_LOSS';
+          } else {
+            exitReason = 'EMERGENCY';
+          }
+
+          // entry 정보 조회
+          const openInfo = tradeOpenInfo.get(tradeId);
+          const { entryPrice, qty, side, timestamp: entryTs } = openInfo;
+
+          // pnl 계산
+          let pnl;
+          if (side === 'LONG') {
+            pnl = (+exitPrice - +entryPrice) * +qty;
+          } else {
+            pnl = (+entryPrice - +exitPrice) * +qty;
+          }
+
+          // durationSeconds 계산
+          const durationSeconds = Math.floor((fill.timestamp - entryTs) / 1000);
+
+          // DB 업데이트
+          await logTradeClose({
+            tradeId,
+            exitPrice,
+            exitReason,
+            pnl,
+            durationSeconds
+          });
+
+          // Discord 알림
+          await notifyTradeClose({
+            symbol: SYMBOL,
+            side,
+            exitPrice,
+            exitReason,
+            pnl
+          });
+
+          // 매핑 정리
+          orderIdToTradeId.delete(parentOrderId);
+          tpOrderIds.delete(parentOrderId);
+          slOrderIds.delete(parentOrderId);
+          tradeOpenInfo.delete(tradeId);
           processedFillIds.add(fill.id);
-          continue;
         }
-
-        // exitPrice
-        const exitPrice = fill.price;
-
-        // exitReason 판단
-        let exitReason = 'MANUAL';
-        if (tpOrderIds.has(parentOrderId)) {
-          exitReason = 'TAKE_PROFIT';
-        } else if (slOrderIds.has(parentOrderId)) {
-          exitReason = 'STOP_LOSS';
-        } else {
-          exitReason = 'EMERGENCY';
-        }
-
-        // entry 정보 조회
-        const openInfo = tradeOpenInfo.get(tradeId);
-        const { entryPrice, qty, side, timestamp: entryTs } = openInfo;
-
-        // pnl 계산
-        let pnl;
-        if (side === 'LONG') {
-          pnl = (+exitPrice - +entryPrice) * +qty;
-        } else {
-          pnl = (+entryPrice - +exitPrice) * +qty;
-        }
-
-        // durationSeconds 계산
-        const durationSeconds = Math.floor((fill.timestamp - entryTs) / 1000);
-
-        // DB 업데이트
-        await logTradeClose({
-          tradeId,
-          exitPrice,
-          exitReason,
-          pnl,
-          durationSeconds
-        });
-
-        // Discord 알림
-        await notifyTradeClose({
-          symbol: SYMBOL,
-          side,
-          exitPrice,
-          exitReason,
-          pnl
-        });
-
-        // 매핑 정리
-        orderIdToTradeId.delete(parentOrderId);
-        tpOrderIds.delete(parentOrderId);
-        slOrderIds.delete(parentOrderId);
-        tradeOpenInfo.delete(tradeId);
-        processedFillIds.add(fill.id);
       }
 
     } catch (err) {
