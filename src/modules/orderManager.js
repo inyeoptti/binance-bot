@@ -78,10 +78,10 @@ export async function openPosition({ symbol, side, qty, entryPrice, leverage, tp
     }
   );
 
-  // 5) 손절 주문 (stop_market, reduceOnly)
+  // 5) 손절 주문 (STOP_MARKET, reduceOnly)
   const slOrder = await exchange.createOrder(
     symbol,
-    'stop_market',
+    'STOP_MARKET',
     side === 'LONG' ? 'sell' : 'buy',
     qty,
     undefined,

@@ -59,7 +59,7 @@ export async function initDb() {
  * @param {number} info.slPct
  * @returns {Promise<number>} insert된 trade ID
  */
-export async function logTradeOpen({ timestamp, symbol, side, entryPrice, entryQty, leverage, tpPct, slPct }) {
+export async function logTradeOpen({ timestamp, symbol, side, entryPrice, entryQty, entryLeverage, tpPct, slPct }) {
   const sql = `
     INSERT INTO trades
       (timestamp, symbol, side, entry_price, entry_qty, entry_leverage, tp_pct, sl_pct)
@@ -71,7 +71,7 @@ export async function logTradeOpen({ timestamp, symbol, side, entryPrice, entryQ
     side,
     entryPrice,
     entryQty,
-    leverage,
+    entryLeverage,
     tpPct,
     slPct
   ];

@@ -78,31 +78,17 @@ export async function fetchAccountBalance() {
  */
 export async function fetchRecentFills(symbol = SYMBOL) {
   // ccxt.fetchMyTrades는 최근 체결 내역(진입·청산 포함)을 보여줍니다.
-  // 여기서는 “positionSide”가 동일한 방향으로 두 번 체결된 이후,
-  // 청산되는 트레이드를 isClosed=true로 간주하는 단순 예시입니다.
+  // 본 봇에서는 체결 정보를 사용해 TP/SL 주문 체결 여부를 판단하므로
+  // orderId와 timestamp 등을 그대로 반환합니다.
   const trades = await exchange.fetchMyTrades(symbol);
-  const results = [];
 
-  // 단순화: 각 체결을 순회하면서 fee, side 구분이 필요하나
-  // 여기서는 'exitReason'을 'TAKE_PROFIT' / 'STOP_LOSS'로 채우지 않고
-  // 청산된 모든 체결을 isClosed=true로 반환합니다.
-  trades.forEach(trade => {
-    if (trade.side === 'sell' || trade.side === 'buy') {
-      // 진입 매매인지 청산 매매인지 구분하려면
-      // 세부 position 정보를 추가로 조회해야 하나,
-      // 간단히 모든 체결을 이전 미청산 상태 → 청산 상태로 가정
-      results.push({
-        tradeId:        trade.id,
-        exitPrice:      trade.price,
-        exitReason:     'FILLED',
-        pnl:            trade.cost - trade.fee,       // 단순 계산: cost(가격×수량) - 수수료
-        durationSeconds: 0,                            // duration은 별도로 추적 필요
-        isClosed:       true
-      });
-    }
-  });
-
-  return results;
+  return trades.map(trade => ({
+    id: trade.id,
+    orderId: trade.order,
+    timestamp: trade.timestamp,
+    price: trade.price,
+    side: trade.side
+  }));
 }
 
 export default {
